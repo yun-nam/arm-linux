@@ -1,0 +1,14 @@
+export ARCH=arm
+export CROSS_COMPILE=arm-linux-gnueabi-
+export PATH=/home/dynamo/a/xzl/ece695/pub/qemu-2.0.0/install/bin:$PATH
+unset LD_LIBRARY_PATH
+unset PKG_CONFIG_PATH
+export EPREFIX="/home/dynamo/a/xzl/gentoo"
+export PATH="$EPREFIX/usr/bin:$EPREFIX/bin":$PATH
+export LD_LIBRARY_PATH=/home/dynamo/a/xzl/ece695/pub/lib
+export PATH=/home/dynamo/a/xzl/ece695/pub/linaro-arm-linux-gnueabi-2012.02/bin:$PATH
+export PATH=/home/dynamo/a/xzl/ece695/pub/arm-2012.03/bin:$PATH
+export ARCH=arm
+export CROSS_COMPILE=arm-linux-gnueabi-
+export MYKERNEL_PATH=/home/min/a/nam21/arm-linux/kernel/linux-linaro-stable-3.10.62-2014.12/arch/arm/boot/zImage
+export MYINITRD_PATH=/home/min/a/nam21/tmp/my-initrd
