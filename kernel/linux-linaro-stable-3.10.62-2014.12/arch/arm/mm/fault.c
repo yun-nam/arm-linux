@@ -25,8 +25,11 @@
 #include <asm/system_misc.h>
 #include <asm/system_info.h>
 #include <asm/tlbflush.h>
-
+#include <asm/io.h>
 #include "fault.h"
+#include <asm/bug.h>
+#include <linux/slab.h>
+
 
 #ifdef CONFIG_MMU
 
@@ -51,6 +54,91 @@ static inline int notify_page_fault(struct pt_regs *regs, unsigned int fsr)
 	return 0;
 }
 #endif
+
+
+pte_t *yun_show_pte(struct mm_struct *mm, unsigned long addr){
+	pgd_t *pgd;
+	pud_t *pud;
+	pmd_t *pmd;
+	pte_t *pte;
+	if (!mm)
+		mm = &init_mm;
+
+	//printk(KERN_ALERT "pgd = %p\n", mm->pgd);
+	pgd = pgd_offset(mm, addr);
+	//printk(KERN_ALERT "[%08lx] *pgd=%08llx",
+	//		addr, (long long)pgd_val(*pgd));
+
+//	do {
+		//pud_t *pud;
+		//pmd_t *pmd;
+		//pte_t *pte=NULL;
+
+		if (pgd_none(*pgd))
+			return NULL;
+			//break;
+
+		if (pgd_bad(*pgd)) {
+			printk("(bad)");
+			return NULL;
+			//break;
+		}
+
+		pud = pud_offset(pgd, addr);
+		if (PTRS_PER_PUD != 1)
+			;
+			//printk(", *pud=%08llx", (long long)pud_val(*pud));
+
+		if (pud_none(*pud))
+			return NULL;
+			//break;
+
+		if (pud_bad(*pud)) {
+			printk("(bad)");
+			return NULL;
+			//break;
+		}
+
+		pmd = pmd_offset(pud, addr);
+		if (PTRS_PER_PMD != 1)
+			;
+			//printk(", *pmd=%08llx", (long long)pmd_val(*pmd));
+
+		if (pmd_none(*pmd))
+			return NULL;
+			//break;
+
+		if (pmd_bad(*pmd)) {
+			printk("(bad)");
+			return NULL;
+			//break;
+		}
+
+		/* We must not map this if we have highmem enabled */
+		if (PageHighMem(pfn_to_page(pmd_val(*pmd) >> PAGE_SHIFT)))
+			return NULL;
+			//break;
+
+		pte = pte_offset_map(pmd, addr);
+		if(!pte) return NULL;
+
+		// check if it is  presented
+		if (!pte_present(*pte) ) 
+           		return NULL;
+           	//if (pte_val(*pte) == 0x00000000)
+           	//	return NULL;
+		//printk(", *pte=%08llx", (long long)pte_val(*pte));
+		
+#ifndef CONFIG_ARM_LPAE
+		printk(", *ppte=%08llx",
+		       (long long)pte_val(pte[PTE_HWTABLE_PTRS]));
+#endif
+		//pte_unmap(pte);
+//	} while(0);
+
+	//printk("\n");
+	return pte;
+}
 
 /*
  * This is useful to dump out the page tables associated with
@@ -112,8 +200,7 @@ void show_pte(struct mm_struct *mm, unsigned long addr)
 		pte = pte_offset_map(pmd, addr);
 		printk(", *pte=%08llx", (long long)pte_val(*pte));
 #ifndef CONFIG_ARM_LPAE
-		printk(", *ppte=%08llx",
-		       (long long)pte_val(pte[PTE_HWTABLE_PTRS]));
+		printk(", *ppte=%08llx", (long long)pte_val(pte[PTE_HWTABLE_PTRS]));
 #endif
 		pte_unmap(pte);
 	} while(0);
@@ -262,6 +349,13 @@ do_page_fault(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 	struct mm_struct *mm;
 	int fault, sig, code;
 	unsigned int flags = FAULT_FLAG_ALLOW_RETRY | FAULT_FLAG_KILLABLE;
+	
+	int found_flag=-1;
+	int cnt_temp=0;
+	int found_duplicated=0;
+	struct reference_counter * refcnt_print = NULL;
+	struct reference_counter * refcnt_new = NULL;
+	struct reference_counter * refcnt = NULL;
 
 	if (notify_page_fault(regs, fsr))
 		return 0;
@@ -311,10 +405,100 @@ retry:
 
 	fault = __do_page_fault(mm, addr, fsr, flags, tsk);
 
+#if 0
+	if(strncmp(current->comm,"test",TASK_COMM_LEN)==0){
+		if (fsr==0x817){
+			//TODO : check NULL for each. might use yun_show_pte
+			pgd_t *pgd;
+			pud_t *pud;
+			pmd_t *pmd;
+			pte_t *pte, Npte;
+			pgd = pgd_offset(mm,addr);
+			pud = pud_offset(pgd,addr);
+			pmd = pmd_offset(pud,addr);
+			pte = pte_offset_map(pmd,addr);
+			Npte = *pte + 2048;
+			// add reference_counter for the pte
+			//refcnt = tsk->ref_head;
+								if (tsk->ref_head==NULL){
+									// there is no refcnt. assign it for the first time
+									refcnt = (struct reference_counter *)kzalloc(sizeof(struct reference_counter), GFP_KERNEL);
+									if (refcnt==NULL){
+										printk(KERN_EMERG "[Yun DEBUG] kzalloc() failed in show_map_vma\n");
+											BUG();
+									}
+									refcnt->cnt = 5;
+									refcnt->pc = 0;
+									refcnt->instruction = 0;
+									refcnt->pte = pte;
+									refcnt->hpte = pte[PTE_HWTABLE_PTRS];
+									refcnt->next=NULL;
+									tsk->ref_head = refcnt;
+									tsk->ref_tail = refcnt;
+									//pte_val(t_pte[PTE_HWTABLE_PTRS]);// = pte_val(t_pte[PTE_HWTABLE_PTRS]) | (0x00000003);
+									//pte_val(*t_pte);// = pte_val(*t_pte) | (0x00000003);
+									pte_val(pte[PTE_HWTABLE_PTRS]) = pte_val(pte[PTE_HWTABLE_PTRS])  & (0xfffffffc);
+									pte_val(*pte) = pte_val(*pte)  & (0xfffffffc);
+									printk(KERN_EMERG "[Yun DEBUG] assigned refcnt in do_page_fault2, %d, %lx, %lx\n", cnt_temp, addr, pte_val(*pte));
+									//printk(KERN_EMERG "[Yun DEBUG] assigned refcnt in show_map_vma 1,%lx\n", start_address);
+								}
+								else{
+#if 1
+									// find if there is refcnt for this pte
+									cnt_temp=0;
+									found_duplicated=0;
+									//printk(KERN_EMERG "[Yun DEBUG] here0\n");
+									refcnt = tsk->ref_head;
+									//printk(KERN_EMERG "[Yun DEBUG] here1\n");
+									while(refcnt != NULL){
+										cnt_temp+=1;
+										//printk(KERN_EMERG "[Yun DEBUG] here2\n");
+										if (pte_val(*(refcnt->pte)) == pte_val(*pte)){
+											//TODO :  what to do??
+											//printk(KERN_EMERG "[Yun DEBUG] Found duplicated pte in do_page_fault\n");
+											found_duplicated=1;
+											break;
+										}
+										refcnt = refcnt->next;
+									}
+									//printk(KERN_EMERG "[Yun DEBUG] here3\n");
+									//found end. add reference cnt
+									if (found_duplicated !=1){
+										//printk(KERN_EMERG "[Yun DEBUG] here4\n");
+										refcnt_new = (struct reference_counter *)kzalloc(sizeof(struct reference_counter), GFP_KERNEL);
+										if (refcnt_new==NULL){
+											printk(KERN_EMERG "[Yun DEBUG] kzalloc() failed in show_map_vma\n");
+												BUG();
+										}
+										refcnt_new->cnt = 5;
+										refcnt_new->pc = 0;
+										refcnt_new->instruction = 0;
+										refcnt_new->pte = pte;
+										//printk(KERN_EMERG "[Yun DEBUG] here5\n");
+										refcnt_new->hpte = pte[PTE_HWTABLE_PTRS];
+										//printk(KERN_EMERG "[Yun DEBUG] here6\n");
+										refcnt_new->next=NULL;
+										tsk->ref_tail->next = refcnt_new;
+										//printk(KERN_EMERG "[Yun DEBUG] here7\n");
+										tsk->ref_tail = refcnt_new;
+										//pte_val(t_pte[PTE_HWTABLE_PTRS]);// = pte_val(t_pte[PTE_HWTABLE_PTRS]) | (0x00000003);
+										//pte_val(*t_pte);// = pte_val(*t_pte) | (0x00000003);
+										pte_val(pte[PTE_HWTABLE_PTRS]) = pte_val(pte[PTE_HWTABLE_PTRS])  & (0xfffffffc);
+										pte_val(*pte) = pte_val(*pte)  & (0xfffffffc);
+										printk(KERN_EMERG "[Yun DEBUG] assigned refcnt in do_page_fault2, %d, %lx, %lx\n", cnt_temp, addr, pte_val(*pte));
+										//printk(KERN_EMERG "[Yun DEBUG] assigned refcnt in show_map_vma 2, %d, %lx\n", cnt_temp, start_address);
+									}
+#endif
+								}
+
+		}
+	}
 	/* If we need to retry but a fatal signal is pending, handle the
 	 * signal first. We do not need to release the mmap_sem because
 	 * it would already be released in __lock_page_or_retry in
 	 * mm/filemap.c. */
+#endif
+
 	if ((fault & VM_FAULT_RETRY) && fatal_signal_pending(current))
 		return 0;
 
@@ -547,6 +731,74 @@ hook_fault_code(int nr, int (*fn)(unsigned long, unsigned int, struct pt_regs *)
 }
 
 /*
+ * Restore an instruction
+ */
+
+/*
+ * Patch an instruction
+ */
+
+// patch undefined instruction to get the kernel control again. so that we can make faulty instruction invalid again
+// Idea borrowed from Renju
+void patch_instruction(struct pt_regs *regs, struct mm_struct *mm, struct reference_counter* refcnt, unsigned long addr)
+{
+	unsigned long currentPC  = regs->ARM_pc;
+	unsigned int currentInstruction;
+	unsigned int undefinedInstruction= BUG_INSTR_VALUE; //e7f001f2
+	//unsigned int undefinedInstruction=3778019102;
+	int out;
+	unsigned int inst_temp=0;
+	pte_t * pte=NULL;
+	unsigned long hpte;
+	// make it writeable.
+	//printk(KERN_EMERG "[Yun:DEBUG] patch_instruction : here1\n");
+	pte = yun_show_pte(mm, currentPC);
+	//printk(KERN_EMERG "[Yun:DEBUG] patch_instruction : here2\n");
+	if (pte==NULL){printk(KERN_EMERG "[Yun:DEBUG] patch_instruction : cannot get the pte for PC\n"); BUG();}		 
+	//hpte = readl(hw_pte(pte));
+	//printk(KERN_EMERG "[Yun:DEBUG] patch_instruction : here3\n");
+	hpte = pte_val(pte[PTE_HWTABLE_PTRS]);
+	//printk(KERN_EMERG "[Yun:DEBUG] patch_instruction : here4\n");
+	set_pte_at(mm, addr, pte, pte_mkwrite(*pte));
+	//printk(KERN_EMERG "[Yun:DEBUG] patch_instruction : here5\n");
+	writel(hpte & (~PTE_EXT_APX), (void *)(const volatile void *)(((unsigned long)pte) + 2048));
+	//writel(hpte & (~PTE_EXT_APX), pte[PTE_HWTABLE_PTRS]);
+	//printk(KERN_EMERG "[Yun:DEBUG] patch_instruction : here6\n");
+	//printk(KERN_EMERG "[Yun:DEBUG] patch_instruction : ready to patch\n");
+
+	// get current instruction	
+	out = get_user(currentInstruction, (u32 __user *)currentPC);
+	if (out != 0) {printk(KERN_EMERG "[Yun:DEBUG] patch_instruction : cannot get_user 1\n"); BUG();}
+       if (thumb_mode(regs)){
+      		printk(KERN_EMERG "[Yun:DEBUG] patch_instruction : thumb_mode\n");
+       	if (!is_wide_instruction(currentInstruction)) {
+       		printk(KERN_EMERG "[Yun:DEBUG] patch_instruction : not wide\n");
+             	currentPC += 2;
+       	}
+       	else {
+       		currentPC += 4;
+       	}
+        }
+        else {
+        	currentPC += 4;
+        }
+
+	 // save it for checking later
+        refcnt->pc = currentPC;
+        //save it for restoring later      
+        out = get_user(refcnt->instruction, (u32 __user *)currentPC);
+        printk(KERN_EMERG "[Yun:DEBUG] patch_instruction : patch instruction start %lx, %08x\n", currentPC, refcnt->instruction);
+        if (out != 0) {printk(KERN_EMERG "[Yun:DEBUG] patch_instruction : cannot get_user 2\n"); BUG();}
+        out = put_user(undefinedInstruction, (u32 __user *)currentPC);
+        if (out != 0) {printk(KERN_EMERG "[Yun:DEBUG] patch_instruction : cannot put_user 1\n"); /*BUG();*/}
+        get_user(inst_temp, (u32 __user *)currentPC);
+	  flush_cache_all();
+	  printk(KERN_EMERG "[Yun:DEBUG] patch_instruction : patch instruction done %lx, %08x\n", currentPC, inst_temp);
+	  
+        
+}
+
+/*
  * Dispatch a data abort to the relevant handler.
  */
 asmlinkage void __exception
@@ -554,6 +806,85 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 {
 	const struct fsr_info *inf = fsr_info + fsr_fs(fsr);
 	struct siginfo info;
+     pte_t *pte;
+     unsigned long hpte;
+     struct reference_counter *  refcnt=NULL;
+
+
+
+#if 1
+	if (strncmp(current->comm, "test", TASK_COMM_LEN) == 0) {
+		//pte = yun_show_pte(current->active_mm, addr);
+		//if (pte){
+		//	printk(KERN_EMERG "[Yun:DEBUG] do_DataAbort for test %lx\n", addr);
+		//	//printk(KERN_EMERG "[Yun:DEBUG] do_DataAbort for test\n");
+		//	hpte = readl((const volatile void *)(((unsigned long)pte) + 2048));
+		//	if (hpte && (!(hpte & 0x3))) {
+		//printk(KERN_EMERG "[Yun:DEBUG] do_DataAbort : Found invalid %lx\n", addr);
+		//		return;
+		//	}
+		//}
+		if (1){
+		//if (fsr==0x817){
+		struct task_struct *tsk;
+		struct mm_struct *mm;
+		tsk = current;
+           	mm  = tsk->active_mm;
+          	pgd_t *pgd;
+           	pud_t *pud;
+           	pmd_t *pmd;
+           	pte_t *pte;
+		pgd = pgd_offset(mm,addr);
+		//yun_show_pte(struct mm_struct * mm, unsigned long addr)
+		
+		if (!pgd_none(*pgd) && !pgd_bad(*pgd)){
+			//printk(KERN_EMERG "[Yun:DEBUG] do_DataAbort pgd : Found invalid %lx, %lx\n", addr, pgd_val(*pgd));
+			pud = pud_offset(pgd,addr);
+			if (!pud_none(*pud) && !pud_bad(*pud)){
+				//printk(KERN_EMERG "[Yun:DEBUG] do_DataAbort pud : Found invalid %lx, %lx\n", addr, pud_present(*pud));
+				pmd = pmd_offset(pud, addr);
+				if (!pmd_none(*pmd) && !pmd_bad(*pmd)){
+					//printk(KERN_EMERG "[Yun:DEBUG] do_DataAbort pmd : Found invalid %lx, %lx\n", addr, pmd_val(*pmd));
+					pte = pte_offset_map(pmd, addr);
+					//printk(KERN_EMERG "[Yun:DEBUG] do_DataAbort  : Found invalid 1 %lx, %lx, %lx\n", addr, pte_val(*pte), pte_val(pte[PTE_HWTABLE_PTRS]));
+					//if (!pte_present(*pte) && pte_val(*pte) != 0x00000000){
+					//if (pte_val(*pte) != 0x00000000){
+					//hpte && (!(hpte & 0x3))
+					if (pte_present(*pte) && !pte_present(pte[PTE_HWTABLE_PTRS])){
+						if(tsk->ref_head==NULL){
+							//printk(KERN_EMERG "[Yun:DEBUG] do_DataAbort : dont have refcnt header. why- not because of me?\n"); 
+							goto normal_routine;
+						}
+						refcnt = tsk->ref_head;
+						while(refcnt!=NULL){
+							if (*(refcnt->pte)==*(pte)){
+								refcnt->cnt+=1;
+								break;
+							}
+							refcnt=refcnt->next;
+						}
+						if (refcnt==NULL){
+							//printk(KERN_EMERG "[Yun:DEBUG] do_DataAbort : cannot find matching pte. why - not because of me?\n"); 
+							goto normal_routine;
+						}
+						printk(KERN_EMERG "[Yun:DEBUG] do_DataAbort  : Found invalid 2 %08x, %08x, %lx, %lx, %lx\n", regs->ARM_pc, regs->ARM_lr, addr, pte_val(*pte), pte_val(pte[PTE_HWTABLE_PTRS]));
+						//printk(KERN_EMERG" CATCHED!!, valid again...now returning!\n");
+						pte_val(pte[PTE_HWTABLE_PTRS]) = pte_val(pte[PTE_HWTABLE_PTRS]) | (0x00000003);
+						//pte_val(*pte) = pte_val(*pte) | (0x00000003);
+						printk(KERN_EMERG "[Yun:DEBUG] do_DataAbort  : make it valid pte=0x%08llx, *ppte=%08llx \n",(long long)pte_val(*pte), (long long)pte_val(pte[PTE_HWTABLE_PTRS]));
+						//patch next instruction in order to control for current pte again
+						if (refcnt->cnt < 10){patch_instruction(regs, mm, refcnt,addr);}
+						return;
+					}
+				}
+			}
+		}
+
+	}
+	}
+#endif
+
+	normal_routine:
 
 	if (!inf->fn(addr, fsr & ~FSR_LNX_PF, regs))
 		return;

@@ -402,9 +402,13 @@ static int call_undef_hook(struct pt_regs *regs, unsigned int instr)
 
 asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 {
+	printk(KERN_EMERG "[Yun:DEBUG] do_undefinstr : entered do_undefinstr %lx\n", regs->ARM_pc);
 	unsigned int instr;
 	siginfo_t info;
 	void __user *pc;
+	unsigned int currentPC;
+	struct reference_counter* refcnt;
+	int out;
 
 	pc = (void __user *)instruction_pointer(regs);
 
@@ -435,11 +439,35 @@ asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 		instr = __mem_to_opcode_arm(instr);
 		goto die_sig;
 	}
-
+	printk(KERN_EMERG "[Yun:DEBUG] do_undefinstr : entered do_undefinstr %lx, %lx, %lx\n", regs->ARM_pc, regs->ARM_lr, instr);
 	if (call_undef_hook(regs, instr) == 0)
 		return;
 
 die_sig:
+	printk(KERN_EMERG "[Yun:DEBUG] do_undefinstr : found undefined instruction %lx, %lx\n", regs->ARM_pc,  regs->ARM_lr);
+	if (current->ref_head==NULL){goto just_die;}
+	refcnt = current->ref_head;
+	currentPC= (void __user *)instruction_pointer(regs);
+	while(refcnt!=NULL){
+		if(refcnt->pc == currentPC){
+			printk(KERN_EMERG "[Yun:DEBUG] do_undefinstr : found matching PC %lx\n", currentPC);
+			break;
+		}
+		refcnt= refcnt->next;
+	}
+
+	if (refcnt==NULL){goto just_die;}
+	out = put_user(refcnt->instruction, (u32 __user *)currentPC);
+	if (out != 0) {printk(KERN_EMERG "[Yun:DEBUG] do_undefinstr : cannot put_user\n"); /*BUG();*/}
+	refcnt->pc=0;
+	refcnt->instruction=0;
+	//make them invalid again
+	pte_val(refcnt->pte[PTE_HWTABLE_PTRS]) = pte_val(refcnt->pte[PTE_HWTABLE_PTRS])  & (0xfffffffc);
+	//pte_val(*(refcnt->pte)) = pte_val(*(refcnt->pte))  & (0xfffffffc);
+	return;
+
+just_die:
+
 #ifdef CONFIG_DEBUG_USER
 	if (user_debug & UDBG_UNDEFINED) {
 		printk(KERN_INFO "%s (%d): undefined instruction: pc=%p\n",

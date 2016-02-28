@@ -1057,13 +1057,23 @@ enum perf_event_task_context {
 	perf_nr_task_contexts,
 };
 
+struct reference_counter{
+	unsigned int pc;
+	unsigned int instruction;
+	pte_t * pte;
+	unsigned long hpte;
+	struct reference_counter * next;
+	unsigned int cnt;
+};
+
 struct task_struct {
 	volatile long state;	/* -1 unrunnable, 0 runnable, >0 stopped */
 	void *stack;
 	atomic_t usage;
 	unsigned int flags;	/* per process flags, defined below */
 	unsigned int ptrace;
-
+	struct reference_counter * ref_head;
+	struct reference_counter * ref_tail;
 #ifdef CONFIG_SMP
 	struct llist_node wake_entry;
 	int on_cpu;

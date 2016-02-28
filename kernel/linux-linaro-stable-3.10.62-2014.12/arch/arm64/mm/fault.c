@@ -38,6 +38,7 @@
 
 static const char *fault_name(unsigned int esr);
 
+
 /*
  * Dump out the page tables associated with 'addr' in mm 'mm'.
  */

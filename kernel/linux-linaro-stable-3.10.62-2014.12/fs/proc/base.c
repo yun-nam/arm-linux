@@ -1732,6 +1732,7 @@ end_instantiate:
 static int dname_to_vma_addr(struct dentry *dentry,
 			     unsigned long *start, unsigned long *end)
 {
+     printk(KERN_EMERG "[Yun:DEBUG] base.c : dname_to_vma_adddr\n");
 	if (sscanf(dentry->d_name.name, "%lx-%lx", start, end) != 2)
 		return -EINVAL;
 

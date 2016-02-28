@@ -17,6 +17,12 @@
 #include <asm/tlbflush.h>
 #include "internal.h"
 
+//Yun
+#include <asm/pgtable.h>
+#include <asm/io.h>
+extern pte_t *yun_show_pte(struct mm_struct  *mm, unsigned long addr); 
+extern void show_pte(struct mm_struct  *mm, unsigned long addr); 
+
 void task_mem(struct seq_file *m, struct mm_struct *mm)
 {
 	unsigned long data, text, lib, swap;
@@ -244,6 +250,8 @@ static int do_maps_open(struct inode *inode, struct file *file,
 	priv = kzalloc(sizeof(*priv), GFP_KERNEL);
 	if (priv) {
 		priv->pid = proc_pid(inode);
+		//printk(KERN_EMERG "[Yun:DEBUG] do_maps_open, %d\n", priv->pid->count);
+		//printk(KERN_EMERG "[Yun:DEBUG] do_maps_open, %d\n", priv->pid->level);
 		ret = seq_open(file, ops);
 		if (!ret) {
 			struct seq_file *m = file->private_data;
@@ -269,6 +277,19 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 	dev_t dev = 0;
 	int len;
 	const char *name = NULL;
+	//Yun
+	unsigned long start_address=0;
+	pte_t * t_pte= NULL;
+	int cnt_line =0;
+	int file_flag =0;
+	int stack_flag =0;
+	int heap_flag =0;
+	int found_flag=-1;
+	int cnt_temp=0;
+	int found_duplicated=0;
+	struct reference_counter * refcnt_print = NULL;
+	struct reference_counter * refcnt_new = NULL;
+	struct reference_counter * refcnt = NULL;
 
 	if (file) {
 		struct inode *inode = file_inode(vma->vm_file);
@@ -302,6 +323,8 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 	if (file) {
 		pad_len_spaces(m, len);
 		seq_path(m, &file->f_path, "\n");
+		if (strcmp(file->f_path.dentry->d_iname,"zero") == 0)
+                    file_flag= 1;
 		goto done;
 	}
 
@@ -317,6 +340,7 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 		if (vma->vm_start <= mm->brk &&
 		    vma->vm_end >= mm->start_brk) {
 			name = "[heap]";
+			heap_flag=1;
 			goto done;
 		}
 
@@ -330,6 +354,7 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 			if (!is_pid || (vma->vm_start <= mm->start_stack &&
 			    vma->vm_end >= mm->start_stack)) {
 				name = "[stack]";
+				stack_flag =1;
 			} else {
 				/* Thread stack in /proc/PID/maps */
 				pad_len_spaces(m, len);
@@ -344,6 +369,161 @@ done:
 		seq_puts(m, name);
 	}
 	seq_putc(m, '\n');
+	//printk(KERN_EMERG "[Yun:DEBUG] end of show_map_vma\n");
+	start_address = start;
+	//show_pte(mm,start_address);
+	
+	while (start_address < end){
+	      //printk(KERN_EMERG "[Yun:DEBUG] Print refer %04x -> %04x\n", start_address, end);
+		t_pte = yun_show_pte(task->active_mm,start_address);
+	     
+		if (t_pte != NULL){
+		//printk(KERN_EMERG "[Yun DEBUG] pte is not NULL in show_map_vma,%lx\n", start_address);
+		   found_flag = -1;
+		   refcnt_print = task->ref_head;
+		   //printk(KERN_EMERG "[Yun DEBUG] start to search ref_head in show_map_vma,%lx\n", start_address);
+		   while(refcnt_print!=NULL){
+		   	//printk(KERN_EMERG "[Yun:DEBUG] compare in show_map_vma %04x, %04x, %04x\n", start_address);
+		   	//if ((*t_pte==*(refcnt_print->pte)) | ((pte_val(*t_pte) | (0x00000003) )==(*(refcnt_print->pte)))){
+		   	if (*t_pte==*(refcnt_print->pte)){
+		   		//printk(KERN_EMERG "[Yun:DEBUG] Found matching pte in show_map_vma, %04x\n", *(t_pte));
+		   		found_flag=1;
+		   		break;
+		   	}
+		   	refcnt_print = refcnt_print->next;
+		   }
+		   //printk(KERN_EMERG "[Yun DEBUG] done to search ref_head in show_map_vma,%lx\n", start_address);
+		   if (found_flag==-1){
+                	if (pte_young(*t_pte)){
+                		seq_printf(m,"x");
+                	}
+                	else{
+                		seq_printf(m,"0");
+                	}
+                }
+                else if (found_flag==1){
+			if (refcnt_print!=NULL){
+                		seq_printf(m,"%d", refcnt_print->cnt);
+			}
+                }
+                
+			//seq_printf(m, "x");
+			//unsigned long hpte = readl((const volatile void *)(((unsigned long)t_pte) + 2048));
+			//unsigned long hpte = pte_val(t_pte[PTE_HWTABLE_PTRS]);
+			//unsigned long pte_v = readl((const volatile void *)(((unsigned long)t_pte)));
+			//seq_printf(m, "(%04x)", pte_val(*t_pte));
+			//seq_printf(m, "(%04x)", (u32)hpte);
+#if 1
+			if (strncmp(task->comm, "test", TASK_COMM_LEN) == 0) {
+			//printk(KERN_EMERG "[Yun DEBUG] Start to assign refcnt in show_map_vma,%lx\n", start_address);
+				//if (heap_flag==1 ){
+				//if (file_flag==1 ){
+				if (stack_flag==1 ){
+				//if (1){
+					//refcnt = task->ref_head;
+					if (task->ref_head==NULL){
+						// there is no refcnt. assign it for the first time
+				 		refcnt = (struct reference_counter *)kzalloc(sizeof(struct reference_counter), GFP_KERNEL);
+				 		if (refcnt==NULL){
+				 			printk(KERN_EMERG "[Yun DEBUG] kzalloc() failed in show_map_vma\n");
+           						BUG();
+				 		}
+				 		refcnt->cnt = 0;
+				 		refcnt->pc = 0;
+				 		refcnt->instruction = 0;
+						refcnt->pte = t_pte;
+						refcnt->hpte = t_pte[PTE_HWTABLE_PTRS];
+					   	refcnt->next=NULL;
+					   	task->ref_head = refcnt;
+					   	task->ref_tail = refcnt;
+					   	pte_val(t_pte[PTE_HWTABLE_PTRS]) = pte_val(t_pte[PTE_HWTABLE_PTRS])  & (0xfffffffc);
+						//pte_val(*t_pte) = pte_val(*t_pte)  & (0xfffffffc);
+
+					   	printk(KERN_EMERG "[Yun DEBUG] assigned refcnt in show_map_vma, %d, %lx, %lx, %lx\n", cnt_temp, start_address, pte_val(*t_pte), pte_val(t_pte[PTE_HWTABLE_PTRS]));
+					 	//printk(KERN_EMERG "[Yun DEBUG] assigned refcnt in show_map_vma 1,%lx\n", start_address);
+					}
+					else{
+#if 1
+						// find if there is refcnt for this pte
+						cnt_temp=0;
+						found_duplicated=0;
+						//printk(KERN_EMERG "[Yun DEBUG] here0\n");
+						refcnt = task->ref_head;
+						//printk(KERN_EMERG "[Yun DEBUG] here1\n");
+						while(refcnt != NULL){
+							cnt_temp+=1;
+							//printk(KERN_EMERG "[Yun DEBUG] here2\n");
+							if (pte_val(*(refcnt->pte)) == pte_val(*t_pte)){
+								//TODO :  what to do??
+								//printk(KERN_EMERG "[Yun DEBUG] Found duplicated pte in do_page_fault\n");
+								found_duplicated=1;
+								break;
+							}
+							refcnt = refcnt->next;
+						}
+						//printk(KERN_EMERG "[Yun DEBUG] here3\n");
+						//found end. add reference cnt
+						if (found_duplicated !=1){
+							//printk(KERN_EMERG "[Yun DEBUG] here4\n");
+							refcnt_new = (struct reference_counter *)kzalloc(sizeof(struct reference_counter), GFP_KERNEL);
+							if (refcnt_new==NULL){
+								printk(KERN_EMERG "[Yun DEBUG] kzalloc() failed in show_map_vma\n");
+           							BUG();
+							}
+							refcnt_new->cnt = 0;
+							refcnt_new->pc = 0;
+							refcnt_new->instruction = 0;
+							refcnt_new->pte = t_pte;
+							//printk(KERN_EMERG "[Yun DEBUG] here5\n");
+							refcnt_new->hpte = t_pte[PTE_HWTABLE_PTRS];
+							//printk(KERN_EMERG "[Yun DEBUG] here6\n");
+							refcnt_new->next=NULL;
+							task->ref_tail->next = refcnt_new;
+							//printk(KERN_EMERG "[Yun DEBUG] here7\n");
+							task->ref_tail = refcnt_new;
+							pte_val(t_pte[PTE_HWTABLE_PTRS]) = pte_val(t_pte[PTE_HWTABLE_PTRS])  & (0xfffffffc);
+							//pte_val(*t_pte) = pte_val(*t_pte)  & (0xfffffffc);
+							printk(KERN_EMERG "[Yun DEBUG] assigned refcnt in show_map_vma, %d, %lx, %lx, %lx\n", cnt_temp, start_address, pte_val(*t_pte), pte_val(t_pte[PTE_HWTABLE_PTRS]));
+							//printk(KERN_EMERG "[Yun DEBUG] assigned refcnt in show_map_vma 2, %d, %lx\n", cnt_temp, start_address);
+						}
+#endif
+					}
+					 
+					//printk(KERN_EMERG "[Yun:DEBUG] Try to make it invaild %04x\n", start_address);
+					//printk(KERN_EMERG "[Yun:DEBUG] Before hpte %04x\n", (u32)hpte);
+					//writel(hpte & ~0x3, (void *)(const volatile void *)(((unsigned long)t_pte) + 2048));
+					//pte_val(t_pte[PTE_HWTABLE_PTRS])
+					//writel(hpte & ~0x1, (void *)(const volatile void *)(t_pte[PTE_HWTABLE_PTRS]));
+					//clean_dcache_area((void *)((const volatile void *)(((unsigned long)t_pte) + 2048)), sizeof(pte_t));
+					//flush_tlb_kernel_page(__phys_to_virt(hpte & PAGE_MASK));
+					//seq_printf(m, "(%04x) ", (u32)hpte);
+					//printk(KERN_EMERG "[Yun:DEBUG] After hpte %04x\n", readl((const volatile void *)(((unsigned long)t_pte) + 2048)));
+					//pte_val(t_pte[PTE_HWTABLE_PTRS]) = pte_val(t_pte[PTE_HWTABLE_PTRS]) & (0xfffffffc);
+					//if(pte_present(*pte)){
+					//	printk(KERN_EMERG"pte is VALID!\n");
+					//}
+					//pte_val(*t_pte) = pte_val(*t_pte) & (0xfffffffc);
+					//if (!pte_present(*pte)){
+					//printk(KERN_EMERG "[Yun:DEBUG] show_map_vma : made it invaid %lx, %lx, %lx\n", start_address, pte_val(*t_pte), pte_val(t_pte[PTE_HWTABLE_PTRS]));
+					//printk(KERN_EMERG "[Yun:DEBUG] do_page_fault : pte NOT VALID any more\n");
+					//}
+				}
+			}
+#endif
+
+		}
+		else{
+			seq_printf(m, ".");
+			//seq_printf(m, "hpte is %08x", (u32)hpte);
+		}
+		cnt_line++;
+		if ((cnt_line % 8) == 0) seq_printf(m," ");
+		if ((cnt_line % 32) == 0) seq_printf(m,"\n");
+		
+		start_address= start_address + (4*1024);
+	}
+	seq_putc(m, '\n');
+	
 }
 
 static int show_map(struct seq_file *m, void *v, int is_pid)
@@ -386,11 +566,13 @@ static const struct seq_operations proc_tid_maps_op = {
 
 static int pid_maps_open(struct inode *inode, struct file *file)
 {
+     //printk(KERN_EMERG "[Yun:DEBUG] pid_maps_open\n");
 	return do_maps_open(inode, file, &proc_pid_maps_op);
 }
 
 static int tid_maps_open(struct inode *inode, struct file *file)
 {
+	printk(KERN_EMERG "[Yun:DEBUG] tid_maps_open\n");
 	return do_maps_open(inode, file, &proc_tid_maps_op);
 }
 
