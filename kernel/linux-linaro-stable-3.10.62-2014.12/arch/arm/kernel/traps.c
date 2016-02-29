@@ -462,6 +462,7 @@ die_sig:
 	refcnt->pc=0;
 	refcnt->instruction=0;
 	//make them invalid again
+	printk(KERN_EMERG "[Yun:DEBUG] do_undefinstr : make it invalid pte=0x%08llx, *ppte=%08llx \n",(long long)pte_val(*(refcnt->pte)), (long long)pte_val(refcnt->pte[PTE_HWTABLE_PTRS]));
 	pte_val(refcnt->pte[PTE_HWTABLE_PTRS]) = pte_val(refcnt->pte[PTE_HWTABLE_PTRS])  & (0xfffffffc);
 	//pte_val(*(refcnt->pte)) = pte_val(*(refcnt->pte))  & (0xfffffffc);
 	return;

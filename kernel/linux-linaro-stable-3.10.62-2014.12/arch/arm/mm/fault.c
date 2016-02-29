@@ -873,7 +873,10 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 						//pte_val(*pte) = pte_val(*pte) | (0x00000003);
 						printk(KERN_EMERG "[Yun:DEBUG] do_DataAbort  : make it valid pte=0x%08llx, *ppte=%08llx \n",(long long)pte_val(*pte), (long long)pte_val(pte[PTE_HWTABLE_PTRS]));
 						//patch next instruction in order to control for current pte again
-						if (refcnt->cnt < 10){patch_instruction(regs, mm, refcnt,addr);}
+						if (refcnt->cnt < 9){
+							printk(KERN_EMERG "[Yun:DEBUG] do_DataAbort  : patch instruction since cnt is %d\n", refcnt->cnt);
+							patch_instruction(regs, mm, refcnt,addr);
+						}
 						return;
 					}
 				}
