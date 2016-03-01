@@ -403,7 +403,10 @@ done:
                 }
                 else if (found_flag==1){
 			if (refcnt_print!=NULL){
-                		seq_printf(m,"%d", refcnt_print->cnt);
+				if (refcnt_print->cnt >=10)
+                			seq_printf(m,"x");
+                		else
+                			seq_printf(m,"%d", refcnt_print->cnt);
 			}
                 }
                 
@@ -416,9 +419,9 @@ done:
 #if 1
 			if (strncmp(task->comm, "test", TASK_COMM_LEN) == 0) {
 			//printk(KERN_EMERG "[Yun DEBUG] Start to assign refcnt in show_map_vma,%lx\n", start_address);
-				//if (heap_flag==1 ){
+				if (heap_flag==1 ){
 				//if (file_flag==1 ){
-				if (stack_flag==1 ){
+				//if (stack_flag==1 | heap_flag==1){
 				//if (1){
 					//refcnt = task->ref_head;
 					if (task->ref_head==NULL){
@@ -438,8 +441,10 @@ done:
 					   	task->ref_tail = refcnt;
 					   	pte_val(t_pte[PTE_HWTABLE_PTRS]) = pte_val(t_pte[PTE_HWTABLE_PTRS])  & (0xfffffffc);
 						//pte_val(*t_pte) = pte_val(*t_pte)  & (0xfffffffc);
-
-					   	printk(KERN_EMERG "[Yun DEBUG] assigned refcnt in show_map_vma, %d, %lx, %lx, %lx\n", cnt_temp, start_address, pte_val(*t_pte), pte_val(t_pte[PTE_HWTABLE_PTRS]));
+						//flush_tlb_kernel_page(__phys_to_virt((const volatile void *)(((unsigned long)t_pte) + 2048) & PAGE_MASK));
+						clean_dcache_area((void *)(t_pte[PTE_HWTABLE_PTRS]), sizeof(pte_t)); 
+						flush_tlb_kernel_page(__phys_to_virt(pte_val(t_pte[PTE_HWTABLE_PTRS]) & PAGE_MASK));
+					   	//printk(KERN_EMERG "[Yun DEBUG] assigned refcnt in show_map_vma, %d, %lx, %lx, %lx\n", cnt_temp, start_address, pte_val(*t_pte), pte_val(t_pte[PTE_HWTABLE_PTRS]));
 					 	//printk(KERN_EMERG "[Yun DEBUG] assigned refcnt in show_map_vma 1,%lx\n", start_address);
 					}
 					else{
@@ -483,7 +488,10 @@ done:
 							task->ref_tail = refcnt_new;
 							pte_val(t_pte[PTE_HWTABLE_PTRS]) = pte_val(t_pte[PTE_HWTABLE_PTRS])  & (0xfffffffc);
 							//pte_val(*t_pte) = pte_val(*t_pte)  & (0xfffffffc);
-							printk(KERN_EMERG "[Yun DEBUG] assigned refcnt in show_map_vma, %d, %lx, %lx, %lx\n", cnt_temp, start_address, pte_val(*t_pte), pte_val(t_pte[PTE_HWTABLE_PTRS]));
+							clean_dcache_area((void *)(t_pte[PTE_HWTABLE_PTRS]), sizeof(pte_t)); 
+							flush_tlb_kernel_page(__phys_to_virt(pte_val(t_pte[PTE_HWTABLE_PTRS]) & PAGE_MASK));
+							//flush_tlb_kernel_page(__phys_to_virt((const volatile void *)(((unsigned long)t_pte) + 2048) & PAGE_MASK));
+							//printk(KERN_EMERG "[Yun DEBUG] assigned refcnt in show_map_vma, %d, %lx, %lx, %lx\n", cnt_temp, start_address, pte_val(*t_pte), pte_val(t_pte[PTE_HWTABLE_PTRS]));
 							//printk(KERN_EMERG "[Yun DEBUG] assigned refcnt in show_map_vma 2, %d, %lx\n", cnt_temp, start_address);
 						}
 #endif
