@@ -1,0 +1,95 @@
+\documentclass[]{article}
+%%
+
+%%
+\usepackage{lmodern}
+\usepackage{amssymb,amsmath}
+\usepackage{ifxetex,ifluatex}
+\usepackage{fixltx2e} % provides \textsubscript
+\ifnum 0\ifxetex 1\fi\ifluatex 1\fi=0 % if pdftex
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+\else % if luatex or xelatex
+  \ifxetex
+    \usepackage{mathspec}
+  \else
+    \usepackage{fontspec}
+  \fi
+  \defaultfontfeatures{Ligatures=TeX,Scale=MatchLowercase}
+\fi
+% use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+% use microtype if available
+\IfFileExists{microtype.sty}{%
+\usepackage{microtype}
+\UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\usepackage{hyperref}
+\hypersetup{unicode=true,
+            pdftitle={OS prog2 report},
+            pdfborder={0 0 0},
+            breaklinks=true}
+\urlstyle{same}  % don't use monospace font for urls
+\IfFileExists{parskip.sty}{%
+\usepackage{parskip}
+}{% else
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt plus 2pt minus 1pt}
+}
+\setlength{\emergencystretch}{3em}  % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setcounter{secnumdepth}{0}
+% Redefines (sub)paragraphs to behave more like sections
+\ifx\paragraph\undefined\else
+\let\oldparagraph\paragraph
+\renewcommand{\paragraph}[1]{\oldparagraph{#1}\mbox{}}
+\fi
+\ifx\subparagraph\undefined\else
+\let\oldsubparagraph\subparagraph
+\renewcommand{\subparagraph}[1]{\oldsubparagraph{#1}\mbox{}}
+\fi
+
+\title{OS prog2 report}
+
+\input{preamble.tex}
+\title{Task 2: Report}
+
+
+
+\begin{document}
+\maketitle
+
+\subsubsection{Contributions}\label{Contributions}
+
+Initially, Yun worked on \texttt{procfs} and Naif worked on exception handling. Yun located the place to print at \texttt{show\_map\_vma()} and the formatting. We worked together on counting (0,x). We have been working together for a large part afterwards (Meeting Tu/Thu and weekends) and the tasks almost merged. Creating the data structure, handling exception, patching instruction, restoring instruction and counting was mostly done by Yun. The part for invalidating/validating and handling page faults was mostly done by Naif. 
+
+\subsubsection{Overall Design}\label{Overall Design}
+Our final design can be summarized as follows:
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+%\setcounter{enumi}{2}
+%\item
+  
+  %\begin{itemize}
+  \item After a task is initialized, we start monitoring upon calling \texttt{/proc/PID/maps}
+  \item In order to monitor a page accessed by the a current procedure, we modified \texttt{task\_struct} structure in the \texttt{/include/linux/sched.h} file by adding a linked list of reference counter structure we created. Key variables for our reference counter structure are \texttt{pc} and \texttt{instruction}. A variable \texttt{pc} is for  saving \texttt{pc} right after the faulty instruction (could be \texttt{pc}+4 or \texttt{pc}+2). It is used for recognizing undefined instruction that is made by us. Also a variable \texttt{instruction} is used for restoring instruction after the faulty instruction when we find an undefined instruction made by us.
+  \item  Within \texttt{show\_map\_vma()}, we invalidate the hardware pte. This is the signal to monitor the page entries for given pid.  
+  \item When the pte is accessed which we are monitoring, this will cause a
+  \texttt{do\_DataAbort()} exception.  There, we validate the hardware pte, then patch a next instruction by saving the next PC and next instruction, and modify the next instruction as "undefined" and store actually next instruction and pc inside data structure we made for restoring later.  This will return to user mode, execute the faulty instruction correctly.
+  \item Since we make next instruction undefined, this will cause exception again after executing faulty instruction correctly. When the \texttt{do\_undefinstr()} is caused, we catch it and verify that this undefined instruction made by us. Once it is verified, we invalidate previous hpte again for future monitoring and restore the instruction we saved using \texttt{put\_user} and silently return to user mode again.
+\end{enumerate}
+\subsubsection{Noteworthy features}\label{{Noteworthy Features}}
+  For the \textbf{Heap}, we are able to count 0...9 successfully. For other parts, counting is done as: \textbf{(a)} the page is not initialized, hence we print <.>  \textbf{(b)} Exists, but the young bit is not set,  we print <0> \textbf{(c)}Young bit is set, that will print <x>
+
+\subsubsection{Known Bugs}\label{Known Bugs}
+\begin{enumerate}
+\item The repeated monitoring(0..9) is triggered once we access \texttt{/proc/PID/maps}.
+\item For the repeated monitoring(0..9), we only track page entries in \texttt{Heap}.
+\item But we can track 0, x and . every pids/entries without triggering.
+\item We check the \texttt{thumb mode} and \texttt{is\_wide\_instruction}, but does not check \texttt{branch instruction}.
+\end{enumerate}
+
+\subsubsection{Side Notes}\label{Side Notes}
+We believe we are able to invalidate every pte entry within \texttt{../fault.c} as a procedure is created. However, since we faced the bugs which some page entries caused problem when we invalided them, we targeted \textbf{Heap} from  \texttt{/proc/PID/maps} as safer choice in order to obtain counting until 9.
+\end{document}
