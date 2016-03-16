@@ -37,3 +37,10 @@ asmlinkage long sys_arm_fadvise64_64(int fd, int advice,
 {
 	return sys_fadvise64_64(fd, offset, len, advice);
 }
+
+asmlinkage long sys_sched_setlimit(pid_t pid, int limit){
+
+	printk(KERN_EMERG"THIS IS OUR SYSCALL\n");
+	return 0;
+}
+

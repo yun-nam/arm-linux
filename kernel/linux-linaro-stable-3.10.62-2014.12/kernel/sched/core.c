@@ -3869,7 +3869,8 @@ __setscheduler(struct rq *rq, struct task_struct *p, int policy, int prio)
 				do_set_cpus_allowed(p, &hmp_slow_cpu_mask);
 			}
 #endif
-	}
+	}	
+	else if (policy == SCHED_MYCFS) p->sched_class = &mycfs_sched_class;
 	else
 		p->sched_class = &fair_sched_class;
 	set_load_weight(p);
@@ -3894,6 +3895,8 @@ static bool check_same_owner(struct task_struct *p)
 static int __sched_setscheduler(struct task_struct *p, int policy,
 				const struct sched_param *param, bool user)
 {
+	
+	printk(KERN_EMERG "[YUN-DEBUG] : __sched_setscheduler : policy = %d, \n",policy);
 	int retval, oldprio, oldpolicy = -1, on_rq, running;
 	unsigned long flags;
 	const struct sched_class *prev_class;
@@ -3913,7 +3916,7 @@ recheck:
 
 		if (policy != SCHED_FIFO && policy != SCHED_RR &&
 				policy != SCHED_NORMAL && policy != SCHED_BATCH &&
-				policy != SCHED_IDLE)
+				policy != SCHED_IDLE && policy != SCHED_MYCFS)
 			return -EINVAL;
 	}
 
@@ -4604,6 +4607,7 @@ SYSCALL_DEFINE1(sched_get_priority_max, int, policy)
 		break;
 	case SCHED_NORMAL:
 	case SCHED_BATCH:
+	case SCHED_MYCFS:
 	case SCHED_IDLE:
 		ret = 0;
 		break;
@@ -4629,6 +4633,7 @@ SYSCALL_DEFINE1(sched_get_priority_min, int, policy)
 		break;
 	case SCHED_NORMAL:
 	case SCHED_BATCH:
+	case SCHED_MYCFS:
 	case SCHED_IDLE:
 		ret = 0;
 	}
@@ -7021,7 +7026,8 @@ void __init sched_init(void)
 		rq->nr_running = 0;
 		rq->calc_load_active = 0;
 		rq->calc_load_update = jiffies + LOAD_FREQ;
-		init_cfs_rq(&rq->cfs);
+		init_cfs_rq(&rq->cfs);		
+		init_mycfs_rq(&rq->mycfs);
 		init_rt_rq(&rq->rt, rq);
 #ifdef CONFIG_FAIR_GROUP_SCHED
 		root_task_group.shares = ROOT_TASK_GROUP_LOAD;
