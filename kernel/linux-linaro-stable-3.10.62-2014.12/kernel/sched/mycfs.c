@@ -47,7 +47,7 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 
 static struct task_struct *pick_next_task_mycfs(struct rq *rq)
 {
-
+	return cpu_rq(rq->cpu)->idle;
 }
 
 /* Account for a task changing its policy or group.
@@ -141,6 +141,26 @@ static unsigned int get_rr_interval_mycfs(struct rq *rq, struct task_struct *tas
 
 static void task_move_group_mycfs(struct task_struct *p, int on_rq)
 {}
+
+/*
+ * init. for mycfs policy, called in core.c [Naif & Yun]
+ */
+void init_mycfs_rq(struct mycfs_rq *mycfs_rq)
+{
+        //printk(KERN_EMERG"[Naif Debug]: INSIDE init_mycfs_rq\n");
+        // temp begin: to be filled
+        mycfs_rq->tasks_timeline = RB_ROOT;
+        mycfs_rq->min_vruntime = (u64)(-(1LL << 20));
+#ifndef CONFIG_64BIT
+        mycfs_rq->min_vruntime_copy = mycfs_rq->min_vruntime;
+#endif
+#if defined(CONFIG_FAIR_GROUP_SCHED) && defined(CONFIG_SMP)
+        atomic64_set(&cfs_rq->decay_counter, 1);
+        atomic64_set(&cfs_rq->removed_load, 0);
+#endif
+                // temp end
+}
+
 
 /*
  * All the scheduling class methods:

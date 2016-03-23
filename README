@@ -1,0 +1,14 @@
+To run the kernel:
+1- run <source configs>, note you have to change the paths inside the file if needed.
+2- run <./build.sh>
+3- run <./runqemu.sh>
+
+The submitted kernel has the following:
+1- An implemented SYSCALL (PART B.1). The syscall is written to existing kernel files instead of new file. It can be found in (Linux/arch/arm/kernel/sys_arm.c), it written
+there since we are targeting ARM machines.
+2- An implementation of mycfs.c. We currently working on a the full implementation if cfs. The current one is an initial and skelton.
+3- A test case for the SYSCALL in <name_of_test_file.c>. It prints "This is our SYSCALL". 
+
+Notes:
+ -  We did not include the functions we are working in on mycfs.c as they are still under-progress.(We submitted a just skelton of our cfs)
+ -  We are also working on the rbtree in parallel in order to integrate it with mycfs.c. It is also under-progress and not included in the kernel for now.
