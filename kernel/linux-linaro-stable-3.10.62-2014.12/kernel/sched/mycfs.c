@@ -2,6 +2,19 @@
 #include "sched.h"
 #include <linux/syscalls.h>
 
+#define LIST_SIZE 3000
+static struct sched_entity * schedule_list[LIST_SIZE];
+static int pick_point=-1;
+static int end=0;
+
+
+static inline struct task_struct *task_of(struct sched_entity *se)
+ {
+ 	return container_of(se, struct task_struct, se);
+ }
+static void resched_task_mycfs(struct task_struct * p){
+	resched_task(p);
+}
 
 /*
  * The enqueue_task method is called before nr_running is
@@ -12,6 +25,20 @@
 static void
 enqueue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 {
+	struct cfs_rq *cfs_rq;
+	struct sched_entity *se = &p->se;
+	//if (se->on_rq)
+	//	break;
+	
+
+	printk(KERN_EMERG "[YUN Debug]: enqueue_task_mycfs\n");
+	//update_rq_runnable_avg(rq, rq->nr_running);
+	if (!se) {
+		//update_rq_runnable_avg(rq, rq->nr_running);
+		schedule_list[end]=&p->se;
+		end++;
+		inc_nr_running(rq);
+	}
 
 }
 
@@ -23,7 +50,28 @@ enqueue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 
 static void dequeue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 {
-
+	struct cfs_rq *cfs_rq;
+	struct sched_entity *se = &p->se;
+	int i;
+	printk(KERN_EMERG "[YUN Debug]: dequeue_task_mycfs\n");
+	//find the task
+	for (i=0; i < end; i++){
+		if (schedule_list[i]==se)
+			break;
+	}
+	// move tasks in the list
+	if(i<end){
+		for (;i<end;i++){
+			schedule_list[i]=schedule_list[i+1];
+		}
+		schedule_list[i]=0;
+		end--;
+	}
+	else{
+		printk(KERN_EMERG "[YUN Debug]: dequeue_task_mycfs : cannot find task in the list\n");
+		BUG();		
+	}
+	dec_nr_running(rq);
 }
 
 
@@ -34,20 +82,144 @@ static void dequeue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
  */
 static void yield_task_mycfs(struct rq *rq)
 {
-
+	printk(KERN_EMERG "[YUN Debug]: yield_task_mycfs\n");
 }
 
 /*
  * Preempt the current task with a newly woken task if needed:
  */
-static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_flags)
+static void check_preempt_wakeup_mycfs(struct rq *rq, struct task_struct *p, int wake_flags)
 {
-
+	printk(KERN_EMERG "[YUN Debug]: check_preempt_wakeup_mycfs\n");
+	struct task_struct *curr = rq->curr;
+	struct sched_entity *cse = &curr->se, *pse = &p->se;
+	if (cse == pse) return;
+	resched_task_mycfs(curr);
 }
+/*
+ * Idle tasks are unconditionally rescheduled:
+ */
+static void check_preempt_curr_mycfs(struct rq *rq, struct task_struct *p, int flags)
+{
+	printk(KERN_EMERG "[YUN Debug]: check_preempt_curr_mycfs\n");
+	struct task_struct *curr = rq->curr;
+	struct sched_entity *se = &curr->se, *pse = &p->se;
+	
+	if (se == pse) return;
+	
+	resched_task_mycfs(curr);
+}
+/*
+ * Preempt the current task with a newly woken task if needed:
+ */
+static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_flags)
+{}
 
 static struct task_struct *pick_next_task_mycfs(struct rq *rq)
 {
+/*
 	return cpu_rq(rq->cpu)->idle;
+	printk(KERN_EMERG "[YUN Debug]: pick_next_task_mycfs\n");
+	struct task_struct *p; 
+	struct task_struct *curr_task = rq->curr;
+	if (end > 0 && end < LIST_SIZE){
+		if (pick_point==-1 && schedule_list[0]!=0){
+			pick_point =0;
+			p = task_of(schedule_list[0]);
+			return p;
+		}
+		else{
+			//BUG();
+			if (end-1 != pick_point){
+				if (schedule_list[pick_point+1]!=0){
+					pick_point++;
+					p = task_of(schedule_list[pick_point]);
+					return p;
+				}else{
+					return NULL;
+					//BUG();
+				}				
+			}else{ //end-1 == pick_point
+				if (schedule_list[0]!=0){
+					pick_point =0;
+					p = task_of(schedule_list[0]);
+					return p;
+				}else{
+					BUG();
+				}
+			}
+		}
+
+	}
+	else{
+		BUG();
+	}
+*/
+
+	struct task_struct *p; 
+      struct task_struct *curr_task = rq->curr;
+      int i=0;
+  
+        if (end >= 0 && end < LIST_SIZE){
+          
+            if (pick_point == -1){
+                // first time pick the first task in the list
+                
+                for (i=0; i< LIST_SIZE; i++){
+                    // returning the first task in the list
+                    if (schedule_list[i] != 0) {
+                        pick_point = i;
+                        p = task_of(schedule_list[i]);
+                        printk(KERN_EMERG "[YUN Debug] picked task (first) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
+                            ,p->comm, i, (int) p->pid, cpu_of(rq),pick_point);
+                        return p;
+                    }            
+                }
+                
+            }
+            else{
+                // pick other tasks. 
+                for (i=(pick_point+1); i< LIST_SIZE; i++){
+                    // returning the first task in the list after head
+                    if (schedule_list[i] != 0) {
+                        pick_point = i;
+                        p = task_of(schedule_list[i]);
+                        printk(KERN_EMERG "[YUN Debug] picked task (head-start-other) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
+                            ,p->comm, i, (int) p->pid, cpu_of(rq),pick_point);
+                        return p;
+                    }            
+                }
+                
+                for (i=0; i< pick_point; i++){
+                    // returning the first task in the list after head
+                    if (schedule_list[i] != 0) {
+                        pick_point = i;
+                        p = task_of(schedule_list[i]);
+                        printk(KERN_EMERG "[YUN Debug] picked task (head-start-other) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
+                            ,p->comm, i, (int) p->pid, cpu_of(rq),pick_point);
+                        return p;
+                    }            
+                }
+                
+                
+                // no other tasks, return same task if valid
+                if (schedule_list[pick_point] != 0){
+                    p = task_of(schedule_list[pick_point]);
+                    printk(KERN_EMERG "[YUN Debug] picked task (no-other) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
+                            ,p->comm, i, (int) p->pid, cpu_of(rq),pick_point);
+                    return p;
+                }
+                
+                
+            }
+            return NULL;
+          
+          }
+        else{
+            printk(KERN_EMERG "[YUN Debug] end at(%d) is invalid\n");
+            BUG();
+          }
+
 }
 
 /* Account for a task changing its policy or group.
@@ -57,10 +229,13 @@ static struct task_struct *pick_next_task_mycfs(struct rq *rq)
  */
 static void set_curr_task_mycfs(struct rq *rq)
 {
+	printk(KERN_EMERG "[YUN Debug]: set_curr_task_mycfs\n");
 
 }
 static bool yield_to_task_mycfs(struct rq *rq, struct task_struct *p, bool preempt)
 {
+	printk(KERN_EMERG "[YUN Debug]: yield_to_task_mycfs\n");
+	return false;
 }
 
 /*
@@ -68,6 +243,7 @@ static bool yield_to_task_mycfs(struct rq *rq, struct task_struct *p, bool preem
  */
 static void put_prev_task_mycfs(struct rq *rq, struct task_struct *prev)
 {
+	printk(KERN_EMERG "[YUN Debug]: put_prev_task_mycfs\n");
 }
 
 /*
@@ -84,6 +260,8 @@ static void put_prev_task_mycfs(struct rq *rq, struct task_struct *prev)
 static int
 select_task_rq_mycfs(struct task_struct *p, int sd_flag, int wake_flags)
 {
+	printk(KERN_EMERG "[YUN Debug]: select_task_rq_mycfs\n");
+	return 0;
 }
 
 /*
@@ -95,30 +273,42 @@ select_task_rq_mycfs(struct task_struct *p, int sd_flag, int wake_flags)
 static void
 migrate_task_rq_mycfs(struct task_struct *p, int next_cpu)
 {
+	printk(KERN_EMERG "[YUN Debug]: migrate_task_rq_mycfs\n");
 }
 
 
 static void rq_online_mycfs(struct rq *rq)
 {
+	printk(KERN_EMERG "[YUN Debug]: rq_online_mycfs\n");
 }
 static void rq_offline_mycfs(struct rq *rq)
 {
+	printk(KERN_EMERG "[YUN Debug]: rq_offline_mycfs\n");
 }
 static void task_waking_mycfs(struct task_struct *p)
 {
+	printk(KERN_EMERG "[YUN Debug]: task_waking_mycfs\n");
 }
 /*
  * scheduler tick hitting a task of our scheduling class:
  */
 static void task_tick_mycfs(struct rq *rq, struct task_struct *curr, int queued)
-{}
+{
+	printk(KERN_EMERG "[YUN Debug]: task_tick_mycfs\n");
+	if (rq->curr == curr)
+		resched_task_mycfs(curr);
+	else resched_task_mycfs(rq->curr);
+
+}
 /*
  * called on fork with the child task as argument from the parent's context
  *  - child not yet on the tasklist
  *  - preemption disabled
  */
 static void task_fork_mycfs(struct task_struct *p)
-{}
+{
+	printk(KERN_EMERG "[YUN Debug]: task_fork_mycfs\n");
+}
 
 /*
  * Priority of the task has changed. Check to see if we preempt
@@ -126,27 +316,56 @@ static void task_fork_mycfs(struct task_struct *p)
  */
 static void
 prio_changed_mycfs(struct rq *rq, struct task_struct *p, int oldprio)
-{}
+{
+	printk(KERN_EMERG "[YUN Debug]: prio_changed_mycfs\n");
+}
 
 static void switched_from_mycfs(struct rq *rq, struct task_struct *p)
-{}
+{
+	printk(KERN_EMERG "[YUN Debug]: switched_from_mycfs\n");
+}
 /*
  * We switched to the sched_fair class.
  */
 static void switched_to_mycfs(struct rq *rq, struct task_struct *p)
-{}
+{
+	printk(KERN_EMERG "[YUN Debug]: switched_to_mycfs\n");
+	if (!p->se.on_rq)
+		return;
+
+	/*
+	 * We were most likely switched from sched_rt, so
+	 * kick off the schedule if running, otherwise just see
+	 * if we can still preempt the current task.
+	 */
+	if (rq->curr == p){
+		printk(KERN_EMERG "handling task %s , reschedule task\n",p->comm);
+		resched_task(rq->curr);
+	}
+	else{
+		printk(KERN_EMERG "going to check preempt task %s\n",p->comm);
+		check_preempt_curr_mycfs(rq, p, 0);
+	}
+}
 
 static unsigned int get_rr_interval_mycfs(struct rq *rq, struct task_struct *task)
-{}
+{
+	printk(KERN_EMERG "[YUN Debug]: get_rr_interval_mycfs\n");
+	return 0;
+}
 
 static void task_move_group_mycfs(struct task_struct *p, int on_rq)
-{}
+{
+	printk(KERN_EMERG "[YUN Debug]: task_move_group_mycfs\n");
+}
 
 /*
  * init. for mycfs policy, called in core.c [Naif & Yun]
  */
 void init_mycfs_rq(struct mycfs_rq *mycfs_rq)
 {
+	printk(KERN_EMERG "[YUN Debug]: init_mycfs_rq\n");
+	memset(schedule_list,0,sizeof(schedule_list));
         //printk(KERN_EMERG"[Naif Debug]: INSIDE init_mycfs_rq\n");
         // temp begin: to be filled
         mycfs_rq->tasks_timeline = RB_ROOT;

@@ -3854,6 +3854,8 @@ extern struct cpumask hmp_slow_cpu_mask;
 static void
 __setscheduler(struct rq *rq, struct task_struct *p, int policy, int prio)
 {
+	printk(KERN_EMERG "[YUN DEBUG] : __sched_setscheduler : policy = %d, \n",policy);
+	//printk(KERN_EMERG "[YUN DEBUG ] : __setscheduler : task name = %s, policy = %d \n",p->comm, policy);
 	p->policy = policy;
 	p->rt_priority = prio;
 	p->normal_prio = normal_prio(p);
@@ -3895,8 +3897,8 @@ static bool check_same_owner(struct task_struct *p)
 static int __sched_setscheduler(struct task_struct *p, int policy,
 				const struct sched_param *param, bool user)
 {
-	
-	printk(KERN_EMERG "[YUN-DEBUG] : __sched_setscheduler : policy = %d, \n",policy);
+	printk(KERN_EMERG "[YUN DEBUG] : __sched_setscheduler : policy = %d, \n",policy);
+	//printk(KERN_EMERG "[YUN DEBUG ] : __sched_setscheduler : task name = %s, policy = %d \n",p->comm, policy);
 	int retval, oldprio, oldpolicy = -1, on_rq, running;
 	unsigned long flags;
 	const struct sched_class *prev_class;
