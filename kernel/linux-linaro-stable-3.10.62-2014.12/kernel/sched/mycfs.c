@@ -1,20 +1,66 @@
 #include <linux/printk.h>
 #include "sched.h"
 #include <linux/syscalls.h>
+#include <linux/latencytop.h>
+#include <linux/sched.h>
+#include <linux/cpumask.h>
+#include <linux/slab.h>
+#include <linux/profile.h>
+#include <linux/interrupt.h>
+#include <linux/mempolicy.h>
+#include <linux/migrate.h>
+#include <linux/task_work.h>
 
+#include <trace/events/sched.h>
+#include <linux/sysfs.h>
+#include <linux/vmalloc.h>
+/* Include cpufreq header to add a notifier so that cpu frequency
+ * scaling can track the current CPU frequency
+ */
+#include <linux/cpufreq.h>
+
+/* *****************************   CONSTATNS ***************************************/
+
+
+
+/* *****************************   OUR CONSTATNS ***************************************/
 #define LIST_SIZE 3000
 static struct sched_entity * schedule_list[LIST_SIZE];
 static int pick_point=-1;
 static int end=0;
 
+/* *****************************   HELPER METHODS ***************************************/
+
+/* Walk up scheduling entities hierarchy */
+#define for_each_sched_entity(se) \
+		for (; se; se = se->parent)
+
+
+/* *****************************   OUR HELPER METHODS ***************************************/
+/* runqueue of mycfs fto enqueue sched_entity */
+static inline struct mycfs_rq *mycfs_rq_of(struct sched_entity *se)
+{
+	return se->mycfs_rq;
+}
 
 static inline struct task_struct *task_of(struct sched_entity *se)
  {
  	return container_of(se, struct task_struct, se);
  }
 static void resched_task_mycfs(struct task_struct * p){
+	printk(KERN_EMERG "[Naif Debug]: resched_task_mycfs \n");
+	// struct rq *rq = cpu_rq(cpu); // rq or mycfs_rq
+	//raw_spin_lock(&task_rq(p)->lock);
 	resched_task(p);
+	//raw_spin_unlock(&task_rq(p)->lock);
 }
+
+/* *****************************   ENQUEUE METHODS ***************************************/
+
+
+
+
+
 
 /*
  * The enqueue_task method is called before nr_running is
@@ -25,20 +71,50 @@ static void resched_task_mycfs(struct task_struct * p){
 static void
 enqueue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 {
-	struct cfs_rq *cfs_rq;
+	struct mycfs_rq *mycfs_rq; // Naif Debug
 	struct sched_entity *se = &p->se;
-	//if (se->on_rq)
-	//	break;
-	
+	se->mycfs_rq = &rq->mycfs; // Naif Debug
 
+	mycfs_rq = se->mycfs_rq;//mycfs_rq_of(se);
+
+
+	if (!mycfs_rq){
+		mycfs_rq = &rq->mycfs;
+
+		printk(KERN_EMERG"[Naif Debug] @ enqueue_mycfs, mycfs_rq = NULL!\n");
+	}
+	if (!mycfs_rq){
+
+		printk(KERN_EMERG"[Naif Debug] @ enqueue_mycfs, rq->mycfs also = NULL!\n");
+	}
 	printk(KERN_EMERG "[YUN Debug]: enqueue_task_mycfs\n");
+
+	//for_each_sched_entity(se) {
+	//		if (se->on_rq)
+	//			break;
+	//		enqueue_entity(mycfs_rq, se, flags);
+
+
 	//update_rq_runnable_avg(rq, rq->nr_running);
-	if (!se) {
+	//if (!se) {
 		//update_rq_runnable_avg(rq, rq->nr_running);
 		schedule_list[end]=&p->se;
+		schedule_list[end]->on_rq = 1; // Naif Debug
 		end++;
-		inc_nr_running(rq);
-	}
+		if(!se){
+			inc_nr_running(rq);
+		}
+
+		if(!mycfs_rq->nr_running){
+			printk(KERN_EMERG"[Naif Debug] @ enqueue_mycfs, inc_nr=NULL\n");
+			mycfs_rq->nr_running = 1;;
+		}else{
+			printk(KERN_EMERG"[Naif Debug] @ enqueue_mycfs, inc_nr++\n");
+			mycfs_rq->nr_running++;
+		}
+
+		flags = ENQUEUE_WAKEUP; // Naif Debug
+	//}
 
 }
 
@@ -50,14 +126,21 @@ enqueue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 
 static void dequeue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 {
-	struct cfs_rq *cfs_rq;
+	struct mycfs_rq *mycfs_rq; // Naif Debug
 	struct sched_entity *se = &p->se;
+	mycfs_rq = mycfs_rq_of(se);// Naif Debug
+	if (!mycfs_rq){
+		printk(KERN_EMERG"[Naif Debug] @ dequeue_mycfs, mycfs is NULL ?!\n");
+	}
 	int i;
 	printk(KERN_EMERG "[YUN Debug]: dequeue_task_mycfs\n");
 	//find the task
 	for (i=0; i < end; i++){
-		if (schedule_list[i]==se)
+		if (schedule_list[i]==se){ // Naif Debug
+			schedule_list[i]->on_rq = 0; // Naif Debug
 			break;
+		}
+
 	}
 	// move tasks in the list
 	if(i<end){
@@ -71,31 +154,16 @@ static void dequeue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 		printk(KERN_EMERG "[YUN Debug]: dequeue_task_mycfs : cannot find task in the list\n");
 		BUG();		
 	}
-	dec_nr_running(rq);
+	if (!se){
+		dec_nr_running(rq);
+	}
+
+	mycfs_rq->nr_running--; // Naif Debug
+	flags |= DEQUEUE_SLEEP; // Naif Debug
+
 }
 
 
-/*
- * sched_yield() is very simple
- *
- * The magic of dealing with the ->skip buddy is in pick_next_entity.
- */
-static void yield_task_mycfs(struct rq *rq)
-{
-	printk(KERN_EMERG "[YUN Debug]: yield_task_mycfs\n");
-}
-
-/*
- * Preempt the current task with a newly woken task if needed:
- */
-static void check_preempt_wakeup_mycfs(struct rq *rq, struct task_struct *p, int wake_flags)
-{
-	printk(KERN_EMERG "[YUN Debug]: check_preempt_wakeup_mycfs\n");
-	struct task_struct *curr = rq->curr;
-	struct sched_entity *cse = &curr->se, *pse = &p->se;
-	if (cse == pse) return;
-	resched_task_mycfs(curr);
-}
 /*
  * Idle tasks are unconditionally rescheduled:
  */
@@ -109,11 +177,7 @@ static void check_preempt_curr_mycfs(struct rq *rq, struct task_struct *p, int f
 	
 	resched_task_mycfs(curr);
 }
-/*
- * Preempt the current task with a newly woken task if needed:
- */
-static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_flags)
-{}
+
 
 static struct task_struct *pick_next_task_mycfs(struct rq *rq)
 {
@@ -149,17 +213,30 @@ static struct task_struct *pick_next_task_mycfs(struct rq *rq)
 				}
 			}
 		}
-
 	}
 	else{
 		BUG();
 	}
 */
 
+	// Begin Naif Debug
+	struct mycfs_rq *mycfs_rq = &rq->mycfs;
+
+	if (!mycfs_rq->nr_running){
+			return NULL;
+	}
+
+	// End of Naif Debug
+
+
+	if(strncmp(rq->curr->comm, "prog3_test1", TASK_COMM_LEN) == 0  ){
+		printk(KERN_EMERG"[Naif Debug] dumping the stack at pick_next\n");
+		dump_stack();
+	}
 	struct task_struct *p; 
       struct task_struct *curr_task = rq->curr;
       int i=0;
-  
+
         if (end >= 0 && end < LIST_SIZE){
           
             if (pick_point == -1){
@@ -170,8 +247,9 @@ static struct task_struct *pick_next_task_mycfs(struct rq *rq)
                     if (schedule_list[i] != 0) {
                         pick_point = i;
                         p = task_of(schedule_list[i]);
-                        printk(KERN_EMERG "[YUN Debug] picked task (first) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
-                            ,p->comm, i, (int) p->pid, cpu_of(rq),pick_point);
+                        printk(KERN_EMERG "[YUN Debug] picked task (first) : %s at i = %d, pid= %d, cpu = %d, head = %d rq->curr:%s\n"
+                            ,p->comm, i, (int) p->pid, cpu_of(rq),pick_point, rq->curr->comm);
+                        mycfs_rq->curr = schedule_list[i]; // Naif Debug
                         return p;
                     }            
                 }
@@ -205,18 +283,23 @@ static struct task_struct *pick_next_task_mycfs(struct rq *rq)
                 // no other tasks, return same task if valid
                 if (schedule_list[pick_point] != 0){
                     p = task_of(schedule_list[pick_point]);
-                    printk(KERN_EMERG "[YUN Debug] picked task (no-other) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
-                            ,p->comm, i, (int) p->pid, cpu_of(rq),pick_point);
+                    //dump_stack();
+                    printk(KERN_EMERG "[YUN Debug] picked task (no-other) : %s at i = %d, pid= %d, cpu = %d, head = %d vrun = %llu , rq->curr:%s\n"
+                            ,p->comm, i, (int) p->pid, cpu_of(rq),pick_point, p->se.vruntime, rq->curr->comm);
+                    mycfs_rq->curr = schedule_list[i]; // Naif Debug
                     return p;
                 }
                 
                 
             }
+            if(strncmp(rq->curr->comm, "prog3_test1", TASK_COMM_LEN == 0) ){
+            	printk(KERN_EMERG "[Naif Debug] pick_next is returning NULL\n");
+            }
             return NULL;
           
           }
         else{
-            printk(KERN_EMERG "[YUN Debug] end at(%d) is invalid\n");
+            printk(KERN_EMERG "[YUN Debug] end at(%d) is invalid\n", end);
             BUG();
           }
 
@@ -232,18 +315,21 @@ static void set_curr_task_mycfs(struct rq *rq)
 	printk(KERN_EMERG "[YUN Debug]: set_curr_task_mycfs\n");
 
 }
-static bool yield_to_task_mycfs(struct rq *rq, struct task_struct *p, bool preempt)
-{
-	printk(KERN_EMERG "[YUN Debug]: yield_to_task_mycfs\n");
-	return false;
-}
+
 
 /*
  * Account for a descheduled task:
  */
 static void put_prev_task_mycfs(struct rq *rq, struct task_struct *prev)
 {
+	// Naif Debug
+	struct sched_entity *se = &prev->se;
+	struct mycfs_rq *mycfs_rq;
+	mycfs_rq = mycfs_rq_of(se);
+	// Naif Debug
 	printk(KERN_EMERG "[YUN Debug]: put_prev_task_mycfs\n");
+	printk(KERN_EMERG "[Naif Debug]: put_prev_task_mycfs, rq->curr:%s, prev:%s\n", rq->curr->comm, prev->comm);
+	mycfs_rq->curr = NULL; // Naif Debug
 }
 
 /*
@@ -285,19 +371,29 @@ static void rq_offline_mycfs(struct rq *rq)
 {
 	printk(KERN_EMERG "[YUN Debug]: rq_offline_mycfs\n");
 }
+
 static void task_waking_mycfs(struct task_struct *p)
 {
 	printk(KERN_EMERG "[YUN Debug]: task_waking_mycfs\n");
 }
+
 /*
  * scheduler tick hitting a task of our scheduling class:
  */
 static void task_tick_mycfs(struct rq *rq, struct task_struct *curr, int queued)
 {
+	//raw_spin_lock(&task_rq(curr)->lock);
 	printk(KERN_EMERG "[YUN Debug]: task_tick_mycfs\n");
-	if (rq->curr == curr)
+	if (rq->curr == curr){
+		printk(KERN_EMERG "[Naif Debug]: task_tick_mycfsm IF \n");
 		resched_task_mycfs(curr);
-	else resched_task_mycfs(rq->curr);
+	}
+	else {
+		printk(KERN_EMERG "[Naif Debug]: task_tick_mycfsm ELSE \n");
+		resched_task_mycfs(rq->curr);
+	}
+	//raw_spin_lock(&task_rq(curr)->lock);
+	//update_rq_runnable_avg(rq, 1); // Naif Debug
 
 }
 /*
@@ -388,10 +484,8 @@ const struct sched_class mycfs_sched_class = {
        .next			= &idle_sched_class, 
 	.enqueue_task		= enqueue_task_mycfs,
 	.dequeue_task		= dequeue_task_mycfs,
-	.yield_task		= yield_task_mycfs,
-	.yield_to_task		= yield_to_task_mycfs,
 
-	.check_preempt_curr	= check_preempt_wakeup,
+	.check_preempt_curr	= check_preempt_curr_mycfs,
 
 	.pick_next_task		= pick_next_task_mycfs,
 	.put_prev_task		= put_prev_task_mycfs,
@@ -421,4 +515,3 @@ const struct sched_class mycfs_sched_class = {
 	.task_move_group	= task_move_group_mycfs,
 #endif
 };
-

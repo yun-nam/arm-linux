@@ -771,6 +771,10 @@ static void enqueue_task(struct rq *rq, struct task_struct *p, int flags)
 
 static void dequeue_task(struct rq *rq, struct task_struct *p, int flags)
 {
+	if(strncmp(rq->curr->comm, "prog3_test1", TASK_COMM_LEN) == 0){
+		printk(KERN_EMERG "[Naif Debug] CORE.c, dequeue_task\n");
+	}
+
 	update_rq_clock(rq);
 	sched_info_dequeued(p);
 	p->sched_class->dequeue_task(rq, p, flags);
@@ -960,6 +964,10 @@ void check_preempt_curr(struct rq *rq, struct task_struct *p, int flags)
 			if (class == rq->curr->sched_class)
 				break;
 			if (class == p->sched_class) {
+				if(strncmp(rq->curr->comm, "prog3_test1", TASK_COMM_LEN) == 0){
+								//dump_stack();
+								printk(KERN_EMERG "[[Naif Debug] at core check_preempt_curr before crash\n");
+				}
 				resched_task(rq->curr);
 				break;
 			}
@@ -2769,6 +2777,9 @@ void scheduler_tick(void)
 	raw_spin_lock(&rq->lock);
 	update_rq_clock(rq);
 	update_cpu_load_active(rq);
+	if(strncmp(rq->curr->comm, "prog3_test1", TASK_COMM_LEN) == 0){
+		printk(KERN_EMERG "[Naif Debug]: CORE.c, calling task_tick_mycfs\n");
+	}
 	curr->sched_class->task_tick(rq, curr, 0);
 	raw_spin_unlock(&rq->lock);
 
@@ -3032,8 +3043,20 @@ need_resched:
 	if (unlikely(!rq->nr_running))
 		idle_balance(cpu, rq);
 
+	if(strncmp(rq->curr->comm, "prog3_test1", TASK_COMM_LEN) == 0){
+			//dump_stack();
+			printk(KERN_EMERG "[Naif Debug]: CORE.c, now calling prev!\n");
+		}
 	put_prev_task(rq, prev);
+	if(strncmp(rq->curr->comm, "prog3_test1", TASK_COMM_LEN) == 0){
+					//dump_stack();
+					printk(KERN_EMERG "[Naif Debug]: CORE.c, now calling pick_next!\n");
+				}
 	next = pick_next_task(rq);
+	if(strncmp(rq->curr->comm, "prog3_test1", TASK_COMM_LEN) == 0){
+					//dump_stack();
+					printk(KERN_EMERG "[Naif Debug]: CORE.c, now calling clear_tsk, and CRASH!\n");
+				}
 	clear_tsk_need_resched(prev);
 	rq->skip_clock_update = 0;
 
@@ -7082,7 +7105,7 @@ void __init sched_init(void)
 		rq->avg_idle = 2*sysctl_sched_migration_cost;
 
 		INIT_LIST_HEAD(&rq->cfs_tasks);
-
+		INIT_LIST_HEAD(&rq->mycfs_tasks); // Naif Debug
 		rq_attach_root(rq, &def_root_domain);
 #ifdef CONFIG_NO_HZ_COMMON
 		rq->nohz_flags = 0;

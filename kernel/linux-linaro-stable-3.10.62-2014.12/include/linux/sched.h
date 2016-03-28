@@ -996,6 +996,7 @@ struct sched_statistics {
 #endif
 
 struct sched_entity {
+	struct mycfs_rq *mycfs_rq; // Naif Debug
 	struct load_weight	load;		/* for load-balancing */
 	struct rb_node		run_node;
 	struct list_head	group_node;

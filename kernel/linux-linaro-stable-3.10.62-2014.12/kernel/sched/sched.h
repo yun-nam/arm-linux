@@ -560,7 +560,7 @@ struct rq {
 	int online;
 
 	struct list_head cfs_tasks;
-
+	struct list_head mycfs_tasks; // Naif Debug
 	u64 rt_avg;
 	u64 age_stamp;
 	u64 idle_stamp;
